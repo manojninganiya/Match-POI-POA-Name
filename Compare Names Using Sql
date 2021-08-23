@@ -1,0 +1,119 @@
+CREATE PROC [dbo].[Proc_MatchPOIAndPOAName] --'MANOJ','KUMAR','YADAV','KUMAR','manok','YADAV'
+(
+ @POIFirstName  VARCHAR(100),
+ @POIMiddleName VARCHAR(100),
+ @POILastName   VARCHAR(100),
+ @POAFirstName  VARCHAR(100),
+ @POAMiddleName VARCHAR(100),
+ @POALastName   VARCHAR(100)
+ )
+AS
+    DECLARE @PoiName VARCHAR(100),
+            @PoaName AS VARCHAR(100),
+            @result  VARCHAR(20)
+
+    SET @PoiName= (SELECT ISNULL(@POIFirstName, ' ') + ',' + ISNULL(@POIMiddleName, ' ') + ',' + ISNULL(@POILastName, ' '))
+    SET @PoaName= (SELECT ISNULL(@POAFirstName, ' ') + ',' + ISNULL(@POAMiddleName, ' ') + ',' + ISNULL(@POALastName, ' '))
+    
+    --for 100 percentage matched
+    
+    ;WITH firststringsplit1 ( s1 )
+         AS (SELECT Cast('<x>' + Replace(@POIName, ',', '</x><x>')
+                         + '</x>' AS XML)),
+         secondstringsplit2 ( s2 )
+         AS (SELECT Cast('<x>' + Replace(@PoaName, ',', '</x><x>')
+                         + '</x>' AS XML))
+                         
+    SELECT @result = ISNULL(Stuff((SELECT
+                            ',' + part1.value('.', 'nvarchar(max)')
+                                   FROM   firststringsplit1
+                                          CROSS apply s1.nodes('/x') AS A(part1)
+                                   WHERE  part1.value('.', 'nvarchar(max)') NOT
+                                          IN(
+                                          SELECT
+                                          b.part2.value('.', 'nvarchar(max)')
+                                          FROM
+                                          secondstringsplit2
+                                          CROSS apply s2.nodes('/x') AS B(
+                                                      part2))
+                                   FOR xml path('')), 1, 1, ''), '0')
+
+    IF ( @result = '0' )
+      BEGIN
+          SELECT Replace(@POIName, ',', ' ')     [POI Name],
+                 Replace(@PoaName, ',', ' ')     [POA Name],
+                 Len(Replace(@POIName, ',', '')) PoiLength,
+                 ''                              PoiNotMachedName,
+                 Cast(0.0 AS DECIMAL(18, 2))     PoiNotMachedLength,
+                 Cast(100 AS DECIMAL(18, 2))     MatchedPercentile
+      END
+    ELSE
+      BEGIN 
+      ;WITH firststringsplit ( s1 )
+               AS (SELECT Cast('<x>' + Replace(@POIName, ',', '</x><x>')
+                               + '</x>' AS XML)),
+               secondstringsplit ( s2 )
+               AS (SELECT Cast('<x>' + Replace(@PoaName, ',', '</x><x>')
+                               + '</x>' AS XML))
+                               
+          SELECT Replace(@POIName, ',', ' ')
+                 [POI Name],
+                 Replace(@PoaName, ',', ' ')
+                 [POA Name],
+                 Len(Replace(@POIName, ',', ''))
+                 PoiLength,
+                 Stuff((SELECT ',' + part1.value('.', 'nvarchar(max)')
+                        FROM   firststringsplit
+                               CROSS apply s1.nodes('/x') AS A(part1)
+                        WHERE  part1.value('.', 'nvarchar(max)') NOT IN(SELECT
+                               b.part2.value('.', 'nvarchar(max)')
+                                                                        FROM
+                               secondstringsplit
+                               CROSS apply s2.nodes('/x') AS B(
+                                           part2))
+                        FOR xml path('')), 1, 1, '')
+                 PoiNotMachedName,
+                 Cast(Len(Replace(Stuff((SELECT
+                                  ',' + part1.value('.', 'nvarchar(max)')
+                                         FROM   firststringsplit
+                                                CROSS apply s1.nodes('/x') AS A(
+                                                            part1)
+                                         WHERE
+                                  part1.value('.', 'nvarchar(max)')
+                                  NOT
+                                  IN(
+                                  SELECT
+                                  b.part2.value('.', 'nvarchar(max)')
+                                  FROM
+                                  secondstringsplit
+                                  CROSS apply s2.nodes('/x') AS B(
+                                              part2))
+                                         FOR xml path('')), 1, 1, ''), ',', ''))
+                      AS
+                      DECIMAL(18, 2))
+                 PoiNotMachedLength,
+                 ( ( Len(Replace(@POIName, ',', '')) - Cast(Len(
+                         Replace(
+                                                                Stuff((SELECT
+                         ',' + part1.value('.', 'nvarchar(max)')
+                            FROM   firststringsplit
+                                   CROSS apply
+                                   s1.nodes('/x')
+                                   AS A(part1)
+                            WHERE
+                         part1.value('.', 'nvarchar(max)') NOT IN(SELECT
+                         b.part2.value('.', 'nvarchar(max)')
+                         FROM
+                         secondstringsplit
+                         CROSS apply s2.nodes('/x') AS B(
+                                     part2))
+                            FOR xml path('')), 1, 1, ''), ',', ''
+                         )) AS
+                                                              DECIMAL(18, 2)) )
+                   /
+                   Cast
+                   (Len
+                   (
+                   Replace(@POIName, ',', '')) AS DECIMAL (18, 2)) ) * 100
+                 MatchedPercentile
+      END 
